@@ -4,20 +4,20 @@
 #
 # Lets you pick:
 #   • which skill bundles to install   — Idea, Reel, or both
-#   • which agent runtimes to link into — Claude Code, Codex, and/or QwenPaw
+#   • which agent runtimes to link into — Claude Code, Codex, QwenPaw, and/or Qoder
 #
 # Auto-detects OS + Python, installs each bundle's native and Python deps,
 # and symlinks the selected skills into <repo-root>/.claude/skills/ and/or
-# <repo-root>/.codex/skills/ (both git-ignored). QwenPaw gets real copies in
-# its shared skill pool instead of links — its scanner rejects symlinked skill
-# dirs. Idempotent — safe to re-run.
+# <repo-root>/.codex/skills/ and/or <repo-root>/.qoder/skills/ (all git-ignored).
+# QwenPaw gets real copies in its shared skill pool instead of links — its
+# scanner rejects symlinked skill dirs. Idempotent — safe to re-run.
 #
 # Usage:
 #   bash install.sh                              # interactive prompts
 #   bash install.sh --yes                        # non-interactive (idea+reel, claude only)
 #   bash install.sh --idea --claude              # explicit selection
 #   bash install.sh --reel --codex --with-pdf    # explicit selection + LaTeX
-#   bash install.sh --idea --reel --claude --codex --qwenpaw
+#   bash install.sh --idea --reel --claude --codex --qwenpaw --qoder
 #
 # Flags (anything you don't pass falls back to a prompt, or the --yes defaults):
 #   --idea / --no-idea            include / skip Idea skills
@@ -25,6 +25,7 @@
 #   --claude / --no-claude        link into <repo-root>/.claude/skills/
 #   --codex / --no-codex          link into <repo-root>/.codex/skills/
 #   --qwenpaw / --no-qwenpaw      copy into the QwenPaw shared skill pool
+#   --qoder / --no-qoder          link into <repo-root>/.qoder/skills/
 #   --with-pdf                    also install a LaTeX engine (Idea PDF idea cards)
 #   --yes, -y                     non-interactive; default selection = idea+reel for Claude
 #   --help, -h                    this help
@@ -34,6 +35,7 @@
 #   EDITOR=code                        use a specific editor (defaults to vim)
 #   CLAUDE_SKILLS_DIR=/custom/path      use a non-default Claude skills dir
 #   CODEX_SKILLS_DIR=/custom/path       use a non-default Codex skills dir
+#   QODER_SKILLS_DIR=/custom/path       use a non-default Qoder skills dir
 #   QWENPAW_WORKING_DIR=/custom/path    use a non-default QwenPaw working dir
 #   QWENPAW_POOL_DIR=/custom/path       use a non-default QwenPaw skill pool
 #
@@ -49,6 +51,7 @@ REEL_REPO="${REPO_ROOT}/ResearchStudio-Reel"
 
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$REPO_ROOT/.claude/skills}"
 CODEX_SKILLS_DIR="${CODEX_SKILLS_DIR:-$REPO_ROOT/.codex/skills}"
+QODER_SKILLS_DIR="${QODER_SKILLS_DIR:-$REPO_ROOT/.qoder/skills}"
 
 # QwenPaw working-dir resolution mirrors its own constant.py: explicit
 # QWENPAW_WORKING_DIR first, then the legacy ~/.copaw layout, then ~/.qwenpaw.
@@ -73,12 +76,12 @@ die()   { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 # CLI parsing
 # ---------------------------------------------------------------------------
 USE_IDEA=""; USE_REEL=""
-USE_CLAUDE=""; USE_CODEX=""; USE_QWENPAW=""
+USE_CLAUDE=""; USE_CODEX=""; USE_QWENPAW=""; USE_QODER=""
 WITH_PDF=0
 NONINTERACTIVE=0
 
 print_help() {
-  sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do
@@ -93,6 +96,8 @@ while [ $# -gt 0 ]; do
     --no-codex)    USE_CODEX=0 ;;
     --qwenpaw)     USE_QWENPAW=1 ;;
     --no-qwenpaw)  USE_QWENPAW=0 ;;
+    --qoder)       USE_QODER=1 ;;
+    --no-qoder)    USE_QODER=0 ;;
     --with-pdf)    WITH_PDF=1 ;;
     --yes|-y)      NONINTERACTIVE=1 ;;
     --help|-h)     print_help; exit 0 ;;
@@ -136,14 +141,15 @@ fi
 if [ -z "$USE_CLAUDE" ]; then ask_yn "Link skills for Claude Code  (-> $CLAUDE_SKILLS_DIR)?" Y && USE_CLAUDE=1 || USE_CLAUDE=0; fi
 if [ -z "$USE_CODEX"  ]; then ask_yn "Link skills for Codex        (-> $CODEX_SKILLS_DIR)?"  N && USE_CODEX=1  || USE_CODEX=0;  fi
 if [ -z "$USE_QWENPAW" ]; then ask_yn "Copy skills into the QwenPaw pool (-> $QWENPAW_POOL_DIR)?" N && USE_QWENPAW=1 || USE_QWENPAW=0; fi
+if [ -z "$USE_QODER" ]; then ask_yn "Link skills for Qoder CLI    (-> $QODER_SKILLS_DIR)?" N && USE_QODER=1 || USE_QODER=0; fi
 
-if [ "$USE_CLAUDE" = 0 ] && [ "$USE_CODEX" = 0 ] && [ "$USE_QWENPAW" = 0 ]; then
-  die "No runtime selected — pick --claude, --codex and/or --qwenpaw."
+if [ "$USE_CLAUDE" = 0 ] && [ "$USE_CODEX" = 0 ] && [ "$USE_QWENPAW" = 0 ] && [ "$USE_QODER" = 0 ]; then
+  die "No runtime selected — pick --claude, --codex, --qwenpaw and/or --qoder."
 fi
 
 echo
 echo "  bundles:      $([ "$USE_IDEA" = 1 ] && echo -n "Idea ")$([ "$USE_REEL" = 1 ] && echo -n "Reel")"
-echo "  runtimes:     $([ "$USE_CLAUDE" = 1 ] && echo -n "Claude($CLAUDE_SKILLS_DIR) ")$([ "$USE_CODEX" = 1 ] && echo -n "Codex($CODEX_SKILLS_DIR) ")$([ "$USE_QWENPAW" = 1 ] && echo -n "QwenPaw($QWENPAW_POOL_DIR)")"
+echo "  runtimes:     $([ "$USE_CLAUDE" = 1 ] && echo -n "Claude($CLAUDE_SKILLS_DIR) ")$([ "$USE_CODEX" = 1 ] && echo -n "Codex($CODEX_SKILLS_DIR) ")$([ "$USE_QWENPAW" = 1 ] && echo -n "QwenPaw($QWENPAW_POOL_DIR) ")$([ "$USE_QODER" = 1 ] && echo -n "Qoder($QODER_SKILLS_DIR)")"
 echo "  optional pdf: $([ "$WITH_PDF" = 1 ] && echo yes || echo no)"
 
 # Sanity: required bundle repos must exist
@@ -254,6 +260,12 @@ link_skill() {
     rm -rf "$dst"; ln -s "$src" "$dst"
     printf '   • codex   %s → %s\n' "$name" "$src"
   fi
+  if [ "$USE_QODER" = 1 ]; then
+    mkdir -p "$QODER_SKILLS_DIR"
+    local dst="$QODER_SKILLS_DIR/$name"
+    rm -rf "$dst"; ln -s "$src" "$dst"
+    printf '   • qoder   %s → %s\n' "$name" "$src"
+  fi
   if [ "$USE_QWENPAW" = 1 ]; then
     copy_skill_qwenpaw "$src" "$name"
   fi
@@ -339,7 +351,7 @@ if [ "$USE_IDEA" = 1 ]; then
 
   log "Linking Idea skills"
   # Legacy slot cleanup (underscore → dash naming).
-  for rt_dir in "$CLAUDE_SKILLS_DIR" "$CODEX_SKILLS_DIR"; do
+  for rt_dir in "$CLAUDE_SKILLS_DIR" "$CODEX_SKILLS_DIR" "$QODER_SKILLS_DIR"; do
     rm -rf "$rt_dir/idea_spark" 2>/dev/null || true
   done
   rm -rf "$QWENPAW_POOL_DIR/idea_spark" 2>/dev/null || true
@@ -451,7 +463,8 @@ if [ "$USE_REEL" = 1 ]; then
     for target_dir in \
       "$([ "$USE_CLAUDE" = 1 ] && echo "$CLAUDE_SKILLS_DIR")" \
       "$([ "$USE_CODEX" = 1 ] && echo "$CODEX_SKILLS_DIR")" \
-      "$([ "$USE_QWENPAW" = 1 ] && echo "$QWENPAW_POOL_DIR")"; do
+      "$([ "$USE_QWENPAW" = 1 ] && echo "$QWENPAW_POOL_DIR")" \
+      "$([ "$USE_QODER" = 1 ] && echo "$QODER_SKILLS_DIR")"; do
       [ -n "$target_dir" ] || continue
       mkdir -p "$target_dir"
       for dep_name in ppt-master pptx2video; do
@@ -522,6 +535,11 @@ if [ "$USE_QWENPAW" = 1 ]; then
   echo "    load them into a workspace: Console → Workspace → Skills → \"Load from Skill Pool\""
   echo "    (or copy a skill into $QWENPAW_HOME/workspaces/<agent_id>/skills/ and run:"
   echo "        qwenpaw skills enable <skill-name> --agent-id <agent_id>)"
+fi
+if [ "$USE_QODER" = 1 ]; then
+  echo "  Qoder:"
+  echo "    skills linked into $QODER_SKILLS_DIR"
+  echo "    open Qoder in this repo and run /skills reload, then invoke:  /idea-spark"
 fi
 if [ "$USE_REEL" = 1 ]; then
   echo

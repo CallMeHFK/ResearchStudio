@@ -15,7 +15,7 @@
  * up from each skill dir and that is the nearest common ancestor they check.
  *
  * Non-interactive (--yes or no TTY) takes env answers:
- *   RS_PLUGINS=idea,reel  RS_SCOPE=global|project  RS_AGENTS=claude,codex,qwenpaw
+ *   RS_PLUGINS=idea,reel  RS_SCOPE=global|project  RS_AGENTS=claude,codex,qwenpaw,qoder
  *   RS_PIP=0|1  + the key env vars.
  */
 import fs from 'node:fs';
@@ -37,6 +37,7 @@ const expandHome = (p) => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1
 const AGENTS = {
   claude: { label: 'Claude Code', skillsDir: (base) => path.join(base, '.claude', 'skills') },
   codex: { label: 'Codex CLI', skillsDir: (base) => path.join(base, '.codex', 'skills') },
+  qoder: { label: 'Qoder CLI', skillsDir: (base) => path.join(base, '.qoder', 'skills') },
   qwenpaw: { label: 'QwenPaw', skillsDir: () => qwenpawDirs().pool, pool: true },
 };
 

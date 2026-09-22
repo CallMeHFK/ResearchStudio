@@ -39,3 +39,4 @@ logs/
 # ─── ResearchStudio installer output (skills links, runtime settings) ───
 .claude/
 .codex/
+.qoder/
