@@ -241,14 +241,30 @@ pip_install() {
   "$PY" -m pip install --user --upgrade "$@"
 }
 
-# copy_skill_qwenpaw <abs_src_dir> <name> — real copy into the QwenPaw shared
-# pool. QwenPaw's scanner resolves skill dirs and rejects anything outside the
-# pool root, so symlinked skills would be dropped — pool entries must be copies.
+# skill_slot_name <abs_src_dir> — the name a skill declares in its SKILL.md
+# frontmatter. That is the identity agent hosts show the user, and it need not
+# match the directory (idea_spark/ declares name: idea-spark). Falls back to the
+# directory name, so installers never carry a rename table that can go stale.
+skill_slot_name() {
+  local src="$1" name
+  name="$(sed -n '2,120p' "$src/SKILL.md" 2>/dev/null \
+            | awk '/^---[[:space:]]*$/{ exit } { print }' \
+            | sed -n 's/^name:[[:space:]]*//p' | head -n1)"
+  name="${name%\"}"; name="${name#\"}"
+  printf '%s' "${name:-$(basename "$src")}"
+}
+
+# copy_skill_qwenpaw <abs_src_dir> — real copy into the QwenPaw shared pool.
+# QwenPaw's scanner resolves skill dirs and rejects anything outside the pool
+# root, so symlinked skills would be dropped — pool entries must be copies.
 copy_skill_qwenpaw() {
-  local src="$1" name="$2"
+  local src="$1" name slot
   [ -d "$src" ] || { warn "missing $src — skipped"; return; }
+  name="$(skill_slot_name "$src")"
   mkdir -p "$QWENPAW_POOL_DIR"
   rm -rf "$QWENPAW_POOL_DIR/$name"
+  slot="$(basename "$src")"
+  [ "$slot" = "$name" ] || rm -rf "$QWENPAW_POOL_DIR/$slot"
   cp -R "$src" "$QWENPAW_POOL_DIR/$name"
   printf '   • qwenpaw %s → %s\n' "$name" "$QWENPAW_POOL_DIR/$name"
 }
@@ -257,18 +273,23 @@ copy_skill_qwenpaw() {
 # on a filesystem that won't take symlinks (some mounted / Windows-drive repos).
 # Returns 1 when it had to copy, so the caller can label the line it prints.
 link_into() {
-  local dst="$1" src="$2"
+  local dst="$1" src="$2" slot
   mkdir -p "$(dirname "$dst")"
   rm -rf "$dst"
+  # A skill installed before its frontmatter name was adopted still sits in the
+  # skills dir under its directory name; every host lists both. Clear it.
+  slot="$(basename "$src")"
+  [ "$slot" = "$(basename "$dst")" ] || rm -rf "$(dirname "$dst")/$slot"
   ln -s "$src" "$dst" 2>/dev/null && return 0
   cp -R "$src" "$dst"
   return 1
 }
 
-# link_skill <abs_src_dir> <link_name>  — into every selected runtime's skills dir.
+# link_skill <abs_src_dir>  — into every selected runtime's skills dir.
 link_skill() {
-  local src="$1" name="$2"
+  local src="$1" name
   [ -d "$src" ] || { warn "missing $src — skipped"; return; }
+  name="$(skill_slot_name "$src")"
   if [ "$USE_CLAUDE" = 1 ]; then
     local dst="$CLAUDE_SKILLS_DIR/$name" how="→"
     link_into "$dst" "$src" || how="(copied)"
@@ -285,7 +306,7 @@ link_skill() {
     printf '   • qoder   %s %s %s\n' "$name" "$how" "$src"
   fi
   if [ "$USE_QWENPAW" = 1 ]; then
-    copy_skill_qwenpaw "$src" "$name"
+    copy_skill_qwenpaw "$src"
   fi
 }
 
@@ -368,14 +389,11 @@ if [ "$USE_IDEA" = 1 ]; then
   pip_install "${IDEA_PKGS[@]}"
 
   log "Linking Idea skills"
-  # Legacy slot cleanup (underscore → dash naming).
-  for rt_dir in "$CLAUDE_SKILLS_DIR" "$CODEX_SKILLS_DIR" "$QODER_SKILLS_DIR"; do
-    rm -rf "$rt_dir/idea_spark" 2>/dev/null || true
-  done
-  rm -rf "$QWENPAW_POOL_DIR/idea_spark" 2>/dev/null || true
-  link_skill "$IDEA_REPO/skills/idea_spark"   idea-spark
-  link_skill "$IDEA_REPO/skills/paper_search" paper-search
-  link_skill "$IDEA_REPO/skills/scoop_check"  scoop-check
+  # Slot names come from each skill's own frontmatter, and any older slot left
+  # behind under the source directory name is cleared as the new one is written.
+  link_skill "$IDEA_REPO/skills/idea_spark"
+  link_skill "$IDEA_REPO/skills/paper_search"
+  link_skill "$IDEA_REPO/skills/scoop_check"
 
   log ".env scaffold"
   if [ -f "$REPO_ROOT/.env" ]; then
@@ -461,8 +479,7 @@ if [ "$USE_REEL" = 1 ]; then
 
   log "Linking Reel skills"
   for skill_dir in "$REEL_REPO/skills"/*/; do
-    skill_name="$(basename "${skill_dir%/}")"
-    link_skill "${skill_dir%/}" "$skill_name"
+    link_skill "${skill_dir%/}"
   done
 
   # Paper2Video delegates deck authoring to ppt-master and rendering/QA to

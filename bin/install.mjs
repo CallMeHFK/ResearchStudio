@@ -178,11 +178,35 @@ function writeEnv(dir, values) {
   fs.writeFileSync(envPath, body, { mode: 0o600 });
   return { envPath, backedUp };
 }
+// The slot name an agent host shows the user is the skill's own frontmatter
+// `name`, which need not match its directory (idea_spark/ declares
+// name: idea-spark). Resolving it here keeps both installers naming installed
+// skills identically, with no rename table to go stale.
+function skillSlotName(absSkillDir, dirName) {
+  let lines;
+  try {
+    lines = fs.readFileSync(path.join(absSkillDir, 'SKILL.md'), 'utf8').split('\n');
+  } catch {
+    return dirName;
+  }
+  if (!lines.length || !/^---\s*$/.test(lines[0])) return dirName;
+  for (let i = 1; i < lines.length; i++) {
+    if (/^---\s*$/.test(lines[i])) break;
+    const m = lines[i].match(/^name:\s*(.+?)\s*$/);
+    if (m) return m[1].replace(/^["']|["']$/g, '') || dirName;
+  }
+  return dirName;
+}
+
 function installSkills(skillsDir, srcDir, names) {
   fs.mkdirSync(skillsDir, { recursive: true });
   for (const s of names) {
-    fs.rmSync(path.join(skillsDir, s), { recursive: true, force: true });
-    fs.cpSync(path.join(srcDir, s), path.join(skillsDir, s), { recursive: true });
+    const slot = skillSlotName(path.join(srcDir, s), s);
+    fs.rmSync(path.join(skillsDir, slot), { recursive: true, force: true });
+    // A host lists every folder it finds, so a slot left behind under the
+    // directory name by an earlier install would show up alongside the new one.
+    if (slot !== s) fs.rmSync(path.join(skillsDir, s), { recursive: true, force: true });
+    fs.cpSync(path.join(srcDir, s), path.join(skillsDir, slot), { recursive: true });
   }
 }
 
