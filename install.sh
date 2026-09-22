@@ -81,7 +81,9 @@ WITH_PDF=0
 NONINTERACTIVE=0
 
 print_help() {
-  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Print the leading comment block (everything after the shebang up to the
+  # first non-comment line) so adding a flag never silently truncates --help.
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
 }
 
 while [ $# -gt 0 ]; do
@@ -199,6 +201,13 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 PY_EXE="$("$PY" -c 'import sys; print(sys.executable)')"
+# Re-point $PY at the interpreter's absolute path. Steps below run in subshells
+# that `cd` elsewhere, so a caller-supplied relative value — the documented
+# `PYTHON=./.venv/bin/python` — would otherwise stop resolving mid-install.
+case "$PY_EXE" in
+  /*) PY="$PY_EXE" ;;
+  [A-Za-z]:[\\/]*) PY="$PY_EXE" ;;   # Windows-style absolute (bash on Windows)
+esac
 echo "  python:       $("$PY" --version 2>&1) — $PY_EXE"
 
 # A default `uv venv` intentionally has no pip module. Prefer pip when the
@@ -244,27 +253,36 @@ copy_skill_qwenpaw() {
   printf '   • qwenpaw %s → %s\n' "$name" "$QWENPAW_POOL_DIR/$name"
 }
 
+# link_into <abs_dst> <abs_src> — symlink the skill, falling back to a real copy
+# on a filesystem that won't take symlinks (some mounted / Windows-drive repos).
+# Returns 1 when it had to copy, so the caller can label the line it prints.
+link_into() {
+  local dst="$1" src="$2"
+  mkdir -p "$(dirname "$dst")"
+  rm -rf "$dst"
+  ln -s "$src" "$dst" 2>/dev/null && return 0
+  cp -R "$src" "$dst"
+  return 1
+}
+
 # link_skill <abs_src_dir> <link_name>  — into every selected runtime's skills dir.
 link_skill() {
   local src="$1" name="$2"
   [ -d "$src" ] || { warn "missing $src — skipped"; return; }
   if [ "$USE_CLAUDE" = 1 ]; then
-    mkdir -p "$CLAUDE_SKILLS_DIR"
-    local dst="$CLAUDE_SKILLS_DIR/$name"
-    rm -rf "$dst"; ln -s "$src" "$dst"
-    printf '   • claude  %s → %s\n' "$name" "$src"
+    local dst="$CLAUDE_SKILLS_DIR/$name" how="→"
+    link_into "$dst" "$src" || how="(copied)"
+    printf '   • claude  %s %s %s\n' "$name" "$how" "$src"
   fi
   if [ "$USE_CODEX" = 1 ]; then
-    mkdir -p "$CODEX_SKILLS_DIR"
-    local dst="$CODEX_SKILLS_DIR/$name"
-    rm -rf "$dst"; ln -s "$src" "$dst"
-    printf '   • codex   %s → %s\n' "$name" "$src"
+    local dst="$CODEX_SKILLS_DIR/$name" how="→"
+    link_into "$dst" "$src" || how="(copied)"
+    printf '   • codex   %s %s %s\n' "$name" "$how" "$src"
   fi
   if [ "$USE_QODER" = 1 ]; then
-    mkdir -p "$QODER_SKILLS_DIR"
-    local dst="$QODER_SKILLS_DIR/$name"
-    rm -rf "$dst"; ln -s "$src" "$dst"
-    printf '   • qoder   %s → %s\n' "$name" "$src"
+    local dst="$QODER_SKILLS_DIR/$name" how="→"
+    link_into "$dst" "$src" || how="(copied)"
+    printf '   • qoder   %s %s %s\n' "$name" "$how" "$src"
   fi
   if [ "$USE_QWENPAW" = 1 ]; then
     copy_skill_qwenpaw "$src" "$name"
@@ -539,7 +557,8 @@ fi
 if [ "$USE_QODER" = 1 ]; then
   echo "  Qoder:"
   echo "    skills linked into $QODER_SKILLS_DIR"
-  echo "    open Qoder in this repo and run /skills reload, then invoke:  /idea-spark"
+  echo "    open Qoder in this repo and run /skills to list what it discovered"
+  echo "    (invoke one by name, e.g. /idea-spark — see https://docs.qoder.com/cli/Skills)"
 fi
 if [ "$USE_REEL" = 1 ]; then
   echo
