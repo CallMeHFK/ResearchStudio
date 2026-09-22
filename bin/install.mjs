@@ -165,6 +165,11 @@ function parseEnv(text) {
 }
 function writeEnv(dir, values) {
   const envPath = path.join(dir, '.env');
+  // Nothing new to record: leave an existing .env exactly as the user left it.
+  // Re-serialising it drops every comment and section header they wrote, and an
+  // earlier run silently did that to a populated file. install.sh already skips
+  // an existing .env; this keeps the two installers in agreement.
+  if (Object.keys(values).length === 0 && fs.existsSync(envPath)) return null;
   let existing = {}, backedUp = false;
   if (fs.existsSync(envPath)) {
     fs.copyFileSync(envPath, envPath + '.bak'); backedUp = true;
